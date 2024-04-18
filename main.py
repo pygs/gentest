@@ -1,9 +1,10 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import psycopg2
 import json
 import os
 
+print(tk.TkVersion)
 CONFIG_FILE = "config.json"
 
 def save_config(host, username, password):
@@ -50,17 +51,76 @@ def login():
             delete_config()
         
         root.destroy()
-        open_main_window()  
+        open_main_window(conn)  
 
     except psycopg2.Error as e:
         messagebox.showerror("Błąd logowania", "Błąd logowania do bazy danych:\n{}".format(e))
 
-def open_main_window():
+def open_main_window(conn):
     main_window = tk.Tk()
     main_window.title("Główne okno")
     main_window.geometry("600x450")
-    tk.Label(main_window, text="Zalogowano pomyślnie!").pack()
+
+    subjects = get_subjects(conn)
+
+    combo_label = tk.Label(main_window, text="Wybierz przedmiot:")
+    combo_label.grid(row=0, column=0)
+
+    selected_value = tk.StringVar(main_window)
+    selected_value.set(subjects[0]) if subjects else selected_value.set("Brak przedmiotów")
+
+    combo_box = tk.OptionMenu(main_window, selected_value, *subjects)
+    combo_box.grid(row=0, column=1)
+
+    plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, selected_value, combo_box))
+    plus_button.grid(row=0, column=2)
+    
     main_window.mainloop()
+
+def open_add_subject_window(conn, selected_value, combo_box):
+    add_window = tk.Toplevel()
+    add_window.title("Dodaj przedmiot")
+    add_window.geometry("200x100")
+
+    tk.Label(add_window, text="Nazwa przedmiotu:").pack()
+    subject_name_entry = tk.Entry(add_window)
+    subject_name_entry.pack()
+
+    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_subject(conn, subject_name_entry.get(), selected_value, combo_box, add_window))
+    add_button.pack()
+
+def add_subject(conn, subject_name, selected_value, combo_box, add_window):
+    if not subject_name:
+        messagebox.showerror("Błąd", "Nazwa przedmiotu nie może być pusta.")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO subjects (name) VALUES (%s)", (subject_name,))
+        conn.commit()
+        cursor.close()
+        messagebox.showinfo("Sukces", "Przedmiot dodany pomyślnie!")
+
+        subjects = get_subjects(conn)
+        combo_box['menu'].delete(0, 'end')  # Usunięcie poprzednich wartości
+        for subject in subjects:
+            combo_box['menu'].add_command(label=subject, command=tk._setit(selected_value, subject))
+
+        add_window.destroy()
+
+    except psycopg2.Error as e:
+        messagebox.showerror("Błąd", "Błąd podczas dodawania przedmiotu:\n{}".format(e))
+
+def get_subjects(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM subjects")
+        subjects = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return subjects
+    except psycopg2.Error as e:
+        messagebox.showerror("Błąd", "Błąd podczas pobierania przedmiotów:\n{}".format(e))
+        return []
 
 root = tk.Tk()
 root.title("Logowanie do PGAdmina")
