@@ -62,22 +62,33 @@ def open_main_window(conn):
     main_window.geometry("600x450")
 
     subjects = get_subjects(conn)
+    topics = get_topics(conn)
 
-    combo_label = tk.Label(main_window, text="Wybierz przedmiot:")
-    combo_label.grid(row=0, column=0)
+    subject_label = tk.Label(main_window, text="Wybierz przedmiot:")
+    subject_label.grid(row=0, column=0)
+    subject_value = tk.StringVar(main_window)
+    subject_value.set(subjects[0]) if subjects else subject_value.set("Brak przedmiotów")
 
-    selected_value = tk.StringVar(main_window)
-    selected_value.set(subjects[0]) if subjects else selected_value.set("Brak przedmiotów")
+    subject_box = tk.OptionMenu(main_window, subject_value, *subjects)
+    subject_box.grid(row=0, column=1)
 
-    combo_box = tk.OptionMenu(main_window, selected_value, *subjects)
-    combo_box.grid(row=0, column=1)
+    subject_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, subject_value, subject_box))
+    subject_plus_button.grid(row=0, column=2)
 
-    plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, selected_value, combo_box))
-    plus_button.grid(row=0, column=2)
+    topic_label = tk.Label(main_window, text="Wybierz temat:")
+    topic_label.grid(row=1, column=0)
+    topic_value = tk.StringVar(main_window)
+    topic_value.set(topics[0]) if topics else topic_value.set("Brak tematów")
+
+    topic_box = tk.OptionMenu(main_window, topic_value, *topics)
+    topic_box.grid(row=1, column=1)
+
+    topic_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, topic_value, topic_box))
+    topic_plus_button.grid(row=0, column=2)
     
     main_window.mainloop()
 
-def open_add_subject_window(conn, selected_value, combo_box):
+def open_add_subject_window(conn, subject_value, subject_box):
     add_window = tk.Toplevel()
     add_window.title("Dodaj przedmiot")
     add_window.geometry("200x100")
@@ -86,10 +97,22 @@ def open_add_subject_window(conn, selected_value, combo_box):
     subject_name_entry = tk.Entry(add_window)
     subject_name_entry.pack()
 
-    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_subject(conn, subject_name_entry.get(), selected_value, combo_box, add_window))
+    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_subject(conn, subject_name_entry.get(), subject_value, subject_box, add_window))
     add_button.pack()
 
-def add_subject(conn, subject_name, selected_value, combo_box, add_window):
+def open_add_topics_window(conn, topic_value, topic_box):
+    add_window = tk.Toplevel()
+    add_window.title("Dodaj temat")
+    add_window.geometry("200x100")
+
+    tk.Label(add_window, text="Nazwa tematu:").pack()
+    topic_name_entry = tk.Entry(add_window)
+    topic_name_entry.pack()
+
+    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_topic(conn, topic_name_entry.get(), topic_value, topic_box, add_window))
+    add_button.pack()
+
+def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     if not subject_name:
         messagebox.showerror("Błąd", "Nazwa przedmiotu nie może być pusta.")
         return
@@ -102,14 +125,36 @@ def add_subject(conn, subject_name, selected_value, combo_box, add_window):
         messagebox.showinfo("Sukces", "Przedmiot dodany pomyślnie!")
 
         subjects = get_subjects(conn)
-        combo_box['menu'].delete(0, 'end')  # Usunięcie poprzednich wartości
+        subject_box['menu'].delete(0, 'end')  # Usunięcie poprzednich wartości
         for subject in subjects:
-            combo_box['menu'].add_command(label=subject, command=tk._setit(selected_value, subject))
+            subject_box['menu'].add_command(label=subject, command=tk._setit(subject_value, subject))
 
         add_window.destroy()
 
     except psycopg2.Error as e:
         messagebox.showerror("Błąd", "Błąd podczas dodawania przedmiotu:\n{}".format(e))
+
+def add_topic(conn, topic_name, topic_value, topic_box, add_window):
+    if not topic_name:
+        messagebox.showerror("Błąd", "Nazwa tematu nie może być pusta.")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO subjects (name) VALUES (%s)", (topic_name,))
+        conn.commit()
+        cursor.close()
+        messagebox.showinfo("Sukces", "Temat dodany pomyślnie!")
+
+        topics = get_topics(conn)
+        topic_box['menu'].delete(0, 'end')  # Usunięcie poprzednich wartości
+        for topic in topics:
+            topic_box['menu'].add_command(label=topic, command=tk._setit(topic_value, topic))
+
+        add_window.destroy()
+
+    except psycopg2.Error as e:
+        messagebox.showerror("Błąd", "Błąd podczas dodawania tematów:\n{}".format(e))
 
 def get_subjects(conn):
     try:
@@ -120,6 +165,17 @@ def get_subjects(conn):
         return subjects
     except psycopg2.Error as e:
         messagebox.showerror("Błąd", "Błąd podczas pobierania przedmiotów:\n{}".format(e))
+        return []
+    
+def get_topics(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM topics")
+        topics = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return topics
+    except psycopg2.Error as e:
+        messagebox.showerror("Błąd", "Błąd podczas pobierania tematów:\n{}".format(e))
         return []
 
 root = tk.Tk()
