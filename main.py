@@ -55,6 +55,18 @@ def login():
 
     except psycopg2.Error as e:
         messagebox.showerror("Błąd logowania", "Błąd logowania do bazy danych:\n{}".format(e))
+def get_subject_id(conn, subject_name):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM subjects WHERE name = %s", (subject_name,))
+        subject_id = cursor.fetchone()[0]
+        cursor.close()
+        return subject_id
+    except psycopg2.Error as e:
+        messagebox.showerror("Błąd", "Błąd podczas pobierania ID przedmiotu:\n{}".format(e))
+        return None
+    
+
 
 def open_main_window(conn):
     main_window = tk.Tk()
@@ -62,7 +74,7 @@ def open_main_window(conn):
     main_window.geometry("600x450")
 
     subjects = get_subjects(conn)
-    topics = get_topics(conn)
+    global topic_value
 
     subject_label = tk.Label(main_window, text="Wybierz przedmiot:")
     subject_label.grid(row=0, column=0)
@@ -74,7 +86,15 @@ def open_main_window(conn):
 
     subject_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, subject_value, subject_box))
     subject_plus_button.grid(row=0, column=2)
-
+    
+    subject_value.trace_add("write", lambda name, index, mode, sv=subject_value: on_combobox_select(conn, sv.get()))
+    subject_value.trace_add("write", lambda *args: refresh_combobox(conn, topic_box, subject_value.get()))
+    subject_id = get_subject_id(conn, subject_value.get())
+    topics = get_topics(conn, subject_value.get())
+    
+    
+    
+    
     topic_label = tk.Label(main_window, text="Wybierz temat:")
     topic_label.grid(row=1, column=0)
     topic_value = tk.StringVar(main_window)
@@ -83,10 +103,30 @@ def open_main_window(conn):
     topic_box = tk.OptionMenu(main_window, topic_value, *topics)
     topic_box.grid(row=1, column=1)
 
-    topic_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, topic_value, topic_box))
-    topic_plus_button.grid(row=0, column=2)
-    
+    topic_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_topic_window(conn, topic_value, topic_box, subject_value.get()))
+    topic_plus_button.grid(row=1, column=2)
+
     main_window.mainloop()
+
+def refresh_combobox(conn, combo_box, current_subject):
+    # Usunięcie istniejących elementów z comboboxa
+    combo_box['menu'].delete(0, 'end')
+
+    # Pobranie zaktualizowanej listy przedmiotów
+    topics = get_topics(conn, current_subject)
+
+    # Dodanie zaktualizowanej listy przedmiotów do comboboxa
+    
+    for topic in topics:
+        combo_box['menu'].add_command(label=topic, command=lambda value=topic: topic_value.set(value))
+
+def on_combobox_select(conn, selected_subject):
+    subject_id = get_subject_id(conn, selected_subject)
+    if subject_id is not None:
+        print("Wybrano przedmiot o ID:", subject_id)
+        return subject_id
+    else:
+        print("Nie można pobrać ID wybranego przedmiotu.")
 
 def open_add_subject_window(conn, subject_value, subject_box):
     add_window = tk.Toplevel()
@@ -100,7 +140,7 @@ def open_add_subject_window(conn, subject_value, subject_box):
     add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_subject(conn, subject_name_entry.get(), subject_value, subject_box, add_window))
     add_button.pack()
 
-def open_add_topics_window(conn, topic_value, topic_box):
+def open_add_topic_window(conn, topic_value, topic_box, current_subject):
     add_window = tk.Toplevel()
     add_window.title("Dodaj temat")
     add_window.geometry("200x100")
@@ -109,7 +149,7 @@ def open_add_topics_window(conn, topic_value, topic_box):
     topic_name_entry = tk.Entry(add_window)
     topic_name_entry.pack()
 
-    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_topic(conn, topic_name_entry.get(), topic_value, topic_box, add_window))
+    add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_topic(conn, topic_name_entry.get(), topic_value, topic_box, add_window, current_subject))
     add_button.pack()
 
 def add_subject(conn, subject_name, subject_value, subject_box, add_window):
@@ -134,19 +174,20 @@ def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     except psycopg2.Error as e:
         messagebox.showerror("Błąd", "Błąd podczas dodawania przedmiotu:\n{}".format(e))
 
-def add_topic(conn, topic_name, topic_value, topic_box, add_window):
+def add_topic(conn, topic_name, topic_value, topic_box, add_window, current_subject):
     if not topic_name:
-        messagebox.showerror("Błąd", "Nazwa tematu nie może być pusta.")
+        messagebox.showerror("Błąd", "Nazwa przedmiotu nie może być pusta.")
         return
     
     try:
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO subjects (name) VALUES (%s)", (topic_name,))
+        subject_id = get_subject_id(conn, current_subject)
+        cursor.execute("INSERT INTO topics (name, subject_id) VALUES (%s, %s)", (topic_name, subject_id))
         conn.commit()
         cursor.close()
         messagebox.showinfo("Sukces", "Temat dodany pomyślnie!")
 
-        topics = get_topics(conn)
+        topics = get_topics(conn, current_subject)
         topic_box['menu'].delete(0, 'end')  # Usunięcie poprzednich wartości
         for topic in topics:
             topic_box['menu'].add_command(label=topic, command=tk._setit(topic_value, topic))
@@ -154,7 +195,7 @@ def add_topic(conn, topic_name, topic_value, topic_box, add_window):
         add_window.destroy()
 
     except psycopg2.Error as e:
-        messagebox.showerror("Błąd", "Błąd podczas dodawania tematów:\n{}".format(e))
+        messagebox.showerror("Błąd", "Błąd podczas dodawania tematu:\n{}".format(e))
 
 def get_subjects(conn):
     try:
@@ -167,10 +208,11 @@ def get_subjects(conn):
         messagebox.showerror("Błąd", "Błąd podczas pobierania przedmiotów:\n{}".format(e))
         return []
     
-def get_topics(conn):
+def get_topics(conn, current_subject):
     try:
+        subject_id = get_subject_id(conn, current_subject)
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM topics")
+        cursor.execute("SELECT name FROM topics WHERE subject_id = %s", (subject_id,))
         topics = [row[0] for row in cursor.fetchall()]
         cursor.close()
         return topics
