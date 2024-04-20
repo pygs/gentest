@@ -1,8 +1,10 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, filedialog
 import psycopg2
 import json
 import os
+import pandas as pd
+from openpyxl import load_workbook
 
 print(tk.TkVersion)
 CONFIG_FILE = "config.json"
@@ -122,6 +124,12 @@ def open_main_window(conn):
     question_label.grid(row=2, column=0)
     question_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_question_window(conn, topic_value.get()))
     question_plus_button.grid(row=2, column=1)
+    question_import_button = tk.Button(main_window, text="Import z excela", command=lambda: open_import_question_window(conn, topic_value.get()))
+    question_import_button.grid(row=2, column=2)
+
+    generate_label = tk.Label(main_window, text="Wygeneruj test: ").grid(row=3, column=0)
+    generate_button = tk.Button(main_window, text="Generuj", command=lambda: open_generate_window(conn)).grid(row=3, column=1)
+
 
     main_window.mainloop()
 
@@ -206,6 +214,46 @@ def open_add_question_window(conn, current_topic):
     add_button = tk.Button(add_window, text="Dodaj", command=lambda: add_question(conn, question_name_entry.get(), answer_1_entry.get(), answer_2_entry.get(), answer_3_entry.get(), answer_4_entry.get(), add_window, current_topic))
     add_button.grid(row=5, column=0)
 
+def open_import_question_window(conn, current_topic):
+    filepath = filedialog.askopenfilename(title="Open Excel file", filetypes=[("Excel files", "*.xlsx")])
+    
+    if filepath:
+        # Wczytanie danych z pliku Excela do ramki danych
+        df = pd.read_excel(filepath)
+        
+        try:
+            wb = load_workbook(filepath)
+            ws = wb.active
+            # Tworzenie kursora
+            cur = conn.cursor()
+            current_topic = get_topic_id(conn, current_topic)
+
+            for row in ws.iter_rows(min_row=1, values_only=True):
+
+                data_to_insert = (current_topic,) + row
+                insert_query = f"INSERT INTO qa (topic_id, question, correct_answer, answer_1, answer_2, answer_3) VALUES (%s, %s, %s, %s, %s, %s)"
+                cur.execute(insert_query, data_to_insert)
+
+            # Potwierdzenie transakcji
+            conn.commit()
+
+            # Zamykanie kursora i połączenia z bazą danych
+            cur.close()
+            conn.close()
+
+            print("Dane zostały pomyślnie dodane do bazy danych.")
+        except psycopg2.Error as e:
+            print(f"Błąd: {e}")
+
+def open_generate_window(conn):
+    generate_window = tk.Toplevel()
+    generate_window.title("Generuj test")
+    generate_window.geometry("300x200")
+
+    tk.Label(generate_window, text="Ilość pytań: ").grid(row=0, column=0)
+    question_quantity = tk.Entry(generate_window).grid(row=0, column=1)
+
+
 def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     if not subject_name:
         messagebox.showerror("Błąd", "Nazwa przedmiotu nie może być pusta.")
@@ -255,14 +303,14 @@ def add_question(conn, question_name, a1, a2, a3, a4, add_window, current_topic)
     if not question_name:
         messagebox.showerror("Błąd", "Nazwa pytania nie może być pusta.")
         return
-    if not a1 or a2 or a3 or a4:
+    if not a1 and a2 and a3 and a4:
         messagebox.showerror("Błąd", "Odpowiedź nie może być pusta.")
         return
     
     try:
         cursor = conn.cursor()
         topic_id = get_topic_id(conn, current_topic)
-        cursor.execute("INSERT INTO qa (topic_id, question, answer_1, answer_2, answer_3, answer_4) VALUES (%s, %s, %s, %s, %s, %s)", (topic_id, question_name, a1, a2, a3, a4))
+        cursor.execute("INSERT INTO qa (topic_id, question, correct_answer, answer_1, answer_2, answer_3) VALUES (%s, %s, %s, %s, %s, %s)", (topic_id, question_name, a1, a2, a3, a4))
         conn.commit()
         cursor.close()
         messagebox.showinfo("Sukces", "Pytanie dodane pomyślnie!")
