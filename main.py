@@ -5,6 +5,7 @@ import json
 import os
 import pandas as pd
 from openpyxl import load_workbook
+import random
 
 print(tk.TkVersion)
 CONFIG_FILE = "config.json"
@@ -128,7 +129,7 @@ def open_main_window(conn):
     question_import_button.grid(row=2, column=2)
 
     generate_label = tk.Label(main_window, text="Wygeneruj test: ").grid(row=3, column=0)
-    generate_button = tk.Button(main_window, text="Generuj", command=lambda: open_generate_window(conn)).grid(row=3, column=1)
+    generate_button = tk.Button(main_window, text="Generuj", command=lambda: open_generate_window(conn, topic_value.get())).grid(row=3, column=1)
 
 
     main_window.mainloop()
@@ -228,7 +229,7 @@ def open_import_question_window(conn, current_topic):
             cur = conn.cursor()
             current_topic = get_topic_id(conn, current_topic)
 
-            for row in ws.iter_rows(min_row=1, values_only=True):
+            for row in ws.iter_rows(min_row=2, values_only=True):
 
                 data_to_insert = (current_topic,) + row
                 insert_query = f"INSERT INTO qa (topic_id, question, correct_answer, answer_1, answer_2, answer_3) VALUES (%s, %s, %s, %s, %s, %s)"
@@ -239,20 +240,41 @@ def open_import_question_window(conn, current_topic):
 
             # Zamykanie kursora i połączenia z bazą danych
             cur.close()
-            conn.close()
 
             print("Dane zostały pomyślnie dodane do bazy danych.")
         except psycopg2.Error as e:
+            messagebox.showerror("Błąd", "Dane puste lub nieprawidłowe")
             print(f"Błąd: {e}")
 
-def open_generate_window(conn):
+def open_generate_window(conn, current_topic):
     generate_window = tk.Toplevel()
     generate_window.title("Generuj test")
     generate_window.geometry("300x200")
 
     tk.Label(generate_window, text="Ilość pytań: ").grid(row=0, column=0)
-    question_quantity = tk.Entry(generate_window).grid(row=0, column=1)
+    question_quantity = tk.Entry(generate_window)
+    question_quantity.grid(row=0, column=1)
 
+    generate_button = tk.Button(generate_window, text="Generuj", command=lambda: generate_test(conn, current_topic, question_quantity.get())).grid(row=1, column=0)
+    print(question_quantity)
+
+def generate_test(conn, current_topic, q_quantity):
+    if not q_quantity:
+        messagebox.showerror("Błąd", "Wartość nie może być mniejsza lub równa 0")
+        return
+    topic_id = get_topic_id(conn, current_topic)
+    cursor = conn.cursor()
+    cursor.execute("SELECT question, correct_answer, answer_1, answer_2, answer_3 FROM qa WHERE topic_id = %s ORDER BY RANDOM() LIMIT %s", (topic_id, q_quantity))
+    print(cursor.query)
+    results = cursor.fetchall()
+    cursor.close()
+
+    for index, row in enumerate(results, start=1):
+        question, correct_answer, answer_1, answer_2, answer_3 = row
+        answers = [correct_answer, answer_1, answer_2, answer_3]
+        print(f"{index}.", question)
+        for i, answer in enumerate(answers):
+            print(f"{i + 1}. {answer}")
 
 def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     if not subject_name:
