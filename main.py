@@ -1,11 +1,15 @@
 import tkinter as tk
 from tkinter import messagebox, filedialog
-import psycopg2
+import psycopg2 #pip
 import json
 import os
-import pandas as pd
-from openpyxl import load_workbook
+import pandas as pd #pip
+from openpyxl import load_workbook #pip
 import random
+import reportlab.lib #pip
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 print(tk.TkVersion)
 CONFIG_FILE = "config.json"
@@ -265,16 +269,42 @@ def generate_test(conn, current_topic, q_quantity):
     topic_id = get_topic_id(conn, current_topic)
     cursor = conn.cursor()
     cursor.execute("SELECT question, correct_answer, answer_1, answer_2, answer_3 FROM qa WHERE topic_id = %s ORDER BY RANDOM() LIMIT %s", (topic_id, q_quantity))
-    print(cursor.query)
     results = cursor.fetchall()
     cursor.close()
 
-    for index, row in enumerate(results, start=1):
+    qa = []
+    for row in results:
         question, correct_answer, answer_1, answer_2, answer_3 = row
         answers = [correct_answer, answer_1, answer_2, answer_3]
-        print(f"{index}.", question)
-        for i, answer in enumerate(answers):
-            print(f"{i + 1}. {answer}")
+        random.shuffle(answers)
+        qa.append((question, answers))
+
+    filename = "test.pdf"
+    generate_pdf(qa, filename)
+
+def generate_pdf(questions_and_answers, filename):
+    doc = SimpleDocTemplate(filename, pagesize=letter)
+    story = []
+
+    # Dodaj pytania i odpowiedzi do dokumentu PDF
+    for index, (question, answers) in enumerate(questions_and_answers, start=1):
+        data = [[f"Pytanie {index}:", question]]
+        data.extend([["Odpowiedź:", answer] for answer in answers])
+
+        # Tabela z pytaniem i odpowiedziami
+        table = Table(data, colWidths=[100, 400])
+        table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                                   ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                                   ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                                   ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                                   ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                                   ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+
+        story.append(table)
+        story.append(Spacer(1, 12))  # Dodaj odstęp między tabelami
+
+    # Zbuduj dokument PDF
+    doc.build(story)
 
 def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     if not subject_name:
