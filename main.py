@@ -9,7 +9,12 @@ import random
 import reportlab.lib #pip
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Frame
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.units import inch
+
 
 print(tk.TkVersion)
 CONFIG_FILE = "config.json"
@@ -58,7 +63,8 @@ def login():
             delete_config()
         
         root.destroy()
-        open_main_window(conn)  
+        print (conn.encoding)
+        open_main_window(conn,)  
 
     except psycopg2.Error as e:
         messagebox.showerror("Błąd logowania", "Błąd logowania do bazy danych:\n{}".format(e))
@@ -255,56 +261,119 @@ def open_generate_window(conn, current_topic):
     generate_window.title("Generuj test")
     generate_window.geometry("300x200")
 
-    tk.Label(generate_window, text="Ilość pytań: ").grid(row=0, column=0)
-    question_quantity = tk.Entry(generate_window)
-    question_quantity.grid(row=0, column=1)
+    tk.Label(generate_window, text="Nazwa pliku: ").grid(row=0, column=0)
+    filename = tk.Entry(generate_window)
+    filename.grid(row=0, column=1)
 
-    generate_button = tk.Button(generate_window, text="Generuj", command=lambda: generate_test(conn, current_topic, question_quantity.get())).grid(row=1, column=0)
+    tk.Label(generate_window, text="Ilość pytań: ").grid(row=1, column=0)
+    question_quantity = tk.Entry(generate_window)
+    question_quantity.grid(row=1, column=1)
+
+    tk.Label(generate_window, text="Ilość grup: ").grid(row=2, column=0)
+    group_quantity = tk.Entry(generate_window)
+    group_quantity.grid(row=2, column=1)
+
+    generate_button = tk.Button(generate_window, text="Generuj", command=lambda: generate_test(conn, current_topic, question_quantity.get(), filename.get(), group_quantity.get())).grid(row=3, column=0)
     print(question_quantity)
 
-def generate_test(conn, current_topic, q_quantity):
-    if not q_quantity:
-        messagebox.showerror("Błąd", "Wartość nie może być mniejsza lub równa 0")
-        return
-    topic_id = get_topic_id(conn, current_topic)
-    cursor = conn.cursor()
-    cursor.execute("SELECT question, correct_answer, answer_1, answer_2, answer_3 FROM qa WHERE topic_id = %s ORDER BY RANDOM() LIMIT %s", (topic_id, q_quantity))
-    results = cursor.fetchall()
-    cursor.close()
+def generate_test(conn, current_topic, q_quantity, filename, group_quantity):
+    for x in range(int(group_quantity)):
+        if not q_quantity:
+            messagebox.showerror("Błąd", "Wartość nie może być mniejsza lub równa 0")
+            return
+        topic_id = get_topic_id(conn, current_topic)
+        cursor = conn.cursor()
+        cursor.execute("SELECT question, correct_answer, answer_1, answer_2, answer_3 FROM qa WHERE topic_id = %s ORDER BY RANDOM() LIMIT %s", (topic_id, q_quantity))
+        results = cursor.fetchall()
+        cursor.close()
 
-    qa = []
-    for row in results:
-        question, correct_answer, answer_1, answer_2, answer_3 = row
-        answers = [correct_answer, answer_1, answer_2, answer_3]
-        random.shuffle(answers)
-        qa.append((question, answers))
+        qa = []
+        ca = []
+        for row in results:
+            question, correct_answer, answer_1, answer_2, answer_3 = row
+            answers = [correct_answer, answer_1, answer_2, answer_3]
+            random.shuffle(answers)
+            correct_answer_index = answers.index(correct_answer)
+            ca.append((chr(97+correct_answer_index)))
+            qa.append((question, answers))
+        add_test(conn, ca)
+        generate_pdf(qa, filename, current_topic, x)
 
-    filename = "test.pdf"
-    generate_pdf(qa, filename)
-
-def generate_pdf(questions_and_answers, filename):
+def generate_pdf(questions_and_answers, filename, current_topic, current_group):
+    filename += str(current_group+1) + ".pdf"
     doc = SimpleDocTemplate(filename, pagesize=letter)
     story = []
 
+    title = current_topic + " Grupa: " + str(current_group + 1)
+
+    pdfmetrics.registerFont(TTFont('Verdana', 'Verdana.ttf'))
+    styles = getSampleStyleSheet()
+    header_style = styles["Heading1"]
+    body_style = styles["BodyText"]
+
+    header_style.fontName = "Verdana"
+    body_style.fontName = "Verdana"
+
+    story.append(Paragraph(title, header_style))
+    story.append(Spacer(1, 12))
+
     # Dodaj pytania i odpowiedzi do dokumentu PDF
     for index, (question, answers) in enumerate(questions_and_answers, start=1):
-        data = [[f"Pytanie {index}:", question]]
-        data.extend([["Odpowiedź:", answer] for answer in answers])
-
-        # Tabela z pytaniem i odpowiedziami
-        table = Table(data, colWidths=[100, 400])
-        table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                                   ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                                   ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-                                   ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                                   ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                                   ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
-
-        story.append(table)
-        story.append(Spacer(1, 12))  # Dodaj odstęp między tabelami
-
-    # Zbuduj dokument PDF
+        question_text = f"Pytanie {index}: {question}"
+        answers_text = "\n".join([f"{chr(97+i)}. {answer}" for i, answer in enumerate(answers)])
+        
+        story.append(Paragraph(question_text, body_style))
+        story.append(Paragraph(answers_text, body_style))
+        story.append(Spacer(1, 12))
+    story.append(PageBreak())
+    generate_answer_sheet(questions_and_answers, story)
     doc.build(story)
+    
+
+def generate_answer_sheet(questions, story):
+    top = [["Imię i nazwisko...................................................................", "Id: ", test_id]]
+
+    table = Table(top, repeatRows=1)
+    table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                               ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
+                               ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
+                               ('TEXTCOLOR', (0, 0), (-1, -1), colors.black)]))
+    story.append(table)
+    story.append(Spacer(1, 36))
+    header = [["Nr zad.", "Odpowiedzi"]]
+    table = Table(header, colWidths=[0.5*inch, 2*inch], repeatRows=1)
+    table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                               ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
+                               ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
+                               ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                               ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+    story.append(table)
+    data = []
+    for index, questions in enumerate(questions, start=0):
+        data.append([index + 1, "A", "B", "C", "D"])
+    
+    table = Table(data, colWidths=[0.5*inch, 0.5*inch, 0.5*inch, 0.5*inch, 0.5*inch], repeatRows=1)
+    table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                               ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
+                               ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
+                               ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                               ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+    story.append(table)
+
+def add_test(conn, ca):
+    global test_id
+    while len(ca) < 20:
+        ca.append(None)
+    cursor = conn.cursor()
+    sql_query = ("INSERT INTO test (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id")
+    cursor.execute(sql_query, ca)
+    test_id = cursor.fetchone()[0]
+    conn.commit()
+
+    cursor.close()
+    print (test_id)
+    return test_id
+
 
 def add_subject(conn, subject_name, subject_value, subject_box, add_window):
     if not subject_name:
