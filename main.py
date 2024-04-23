@@ -10,10 +10,16 @@ import reportlab.lib #pip
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Frame
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
+from reportlab.graphics.shapes import Drawing, Circle, String
+from reportlab.lib.enums import TA_CENTER
+import cv2 #pip
+import pytesseract #pip and tesseract
+import numpy as np
 
 
 print(tk.TkVersion)
@@ -140,6 +146,9 @@ def open_main_window(conn):
 
     generate_label = tk.Label(main_window, text="Wygeneruj test: ").grid(row=3, column=0)
     generate_button = tk.Button(main_window, text="Generuj", command=lambda: open_generate_window(conn, topic_value.get())).grid(row=3, column=1)
+
+    check_label = tk.Label(main_window, text="Sprawdź test: ").grid(row=4, column=0)
+    check_button = tk.Button(main_window, text="Sprawdź", command=lambda: open_opencv_window(conn)).grid(row=4, column=1)
 
 
     main_window.mainloop()
@@ -276,6 +285,87 @@ def open_generate_window(conn, current_topic):
     generate_button = tk.Button(generate_window, text="Generuj", command=lambda: generate_test(conn, current_topic, question_quantity.get(), filename.get(), group_quantity.get())).grid(row=3, column=0)
     print(question_quantity)
 
+def open_opencv_window(conn):
+    filepath = filedialog.askopenfilename(title="Open Photo file", filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")])
+    image = cv2.imread(filepath)
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    height, width, _ = image.shape
+    
+    # Określ proporcje obszaru zainteresowania (np. 10% szerokości i 5% wysokości)
+    roi_width_percent = 15
+    roi_height_percent = 20
+    
+    # Oblicz wymiary obszaru zainteresowania
+    roi_width = int(width * roi_width_percent / 100)
+    roi_height = int(height * roi_height_percent / 100)
+    
+    # Określ pozycję obszaru zainteresowania (w prawym górnym rogu obrazu)
+    roi_x = width - roi_width
+    roi_y = 0
+    
+    # Wycinamy obszar zainteresowania z obrazu
+    roi = image[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
+    id = pytesseract.image_to_string(roi)
+    print(id)
+    
+    
+    image_height, image_width, _ = image.shape
+    middle_region = image[:, image_width // 3:2 * image_width // 3]
+    gray_middle = cv2.cvtColor(middle_region, cv2.COLOR_BGR2GRAY)
+
+    # Wykonaj binaryzację obrazu dla środkowej części
+    _, binary_middle = cv2.threshold(gray_middle, 150, 255, cv2.THRESH_BINARY_INV)
+
+    # Znajdź kontury na obrazie binarnym dla środkowej części
+    contours, _ = cv2.findContours(binary_middle, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Przefiltruj kontury, aby wykryć tylko te, które są odpowiednio dużymi prostokątami
+    min_contour_area = 100
+    max_contour_area = 1000
+    filtered_contours = [cnt for cnt in contours if min_contour_area < cv2.contourArea(cnt) < max_contour_area]
+
+    
+    answers = {}
+    for contour in filtered_contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        roi = middle_region[y:y+h, x:x+w]
+        mean_color = np.mean(roi)
+        threshold = 186  # Prog wartości koloru, który oznacza, że obszar jest zamalowany
+        if mean_color < threshold:
+            num_cols = 5  # Liczba obszarów kolumnowych na karcie odpowiedzi (4 odpowiedzi: A, B, C, D)
+            col_width = middle_region.shape[1] // num_cols
+            col_index = x // col_width
+            labels = [' ', 'A', 'B', 'C', 'D']
+            answers[(x, y)] = labels[col_index]
+    # Wyświetl obraz z zaznaczonymi zamalowanymi prostokątami i etykietami odpowiedzi
+    for (x, y), label in answers.items():
+        cv2.putText(middle_region, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    selected_answers = []
+    sorted_answers = sorted(answers.items(), key=lambda item: item[0][1])
+    for (_, _), label in sorted_answers:
+        selected_answers.append(label)
+    print (selected_answers)
+    cv2.imshow('Detected Squares', middle_region)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    check_test(conn, id, selected_answers)
+
+def check_test(conn, id, selected_answers):
+    id_test = id
+    answ_from_db = []
+    correct = 0
+    cursor = conn.cursor()
+    cursor.execute("SELECT a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20 FROM test WHERE id = %s", (id_test,))
+    answ_from_db = cursor.fetchone()
+    cursor.close()
+    selected_answers = [answer.lower() for answer in selected_answers]
+    answ_from_db_cleaned = []
+    answ_from_db_cleaned = [answer for answer in answ_from_db if answer is not None]
+    for i in range(len(selected_answers)):
+        if selected_answers[i] == answ_from_db_cleaned[i]:
+            correct += 1
+    print(correct)
+
 def generate_test(conn, current_topic, q_quantity, filename, group_quantity):
     for x in range(int(group_quantity)):
         if not q_quantity:
@@ -326,17 +416,26 @@ def generate_pdf(questions_and_answers, filename, current_topic, current_group):
         story.append(Paragraph(answers_text, body_style))
         story.append(Spacer(1, 12))
     story.append(PageBreak())
-    generate_answer_sheet(questions_and_answers, story)
+    generate_answer_sheet(questions_and_answers, story, doc)
     doc.build(story)
     
 
-def generate_answer_sheet(questions, story):
-    top = [["Imię i nazwisko...................................................................", "Id: ", test_id]]
+def generate_answer_sheet(questions, story, doc):
+    pdfmetrics.registerFont(TTFont('Symbol', 'Symbol.ttf'))
+    styles = getSampleStyleSheet()
+    body_style = styles["BodyText"]
+    body_style.borderWidth = 1
+    body_style.borderColor = "black"
+    body_style.fontName = "Verdana"
+    body_style.fontSize = 10
+    body_style.align = "TA_CENTRE"
+    top = [["Imię i nazwisko...................................................................                            ", test_id]]
 
     table = Table(top, repeatRows=1)
     table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
                                ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
+                               ('FONTSIZE', (0, 0), (-1, -1), 12),
                                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black)]))
     story.append(table)
     story.append(Spacer(1, 36))
@@ -346,19 +445,27 @@ def generate_answer_sheet(questions, story):
                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
                                ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
                                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                               ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+                               ('GRID', (0, 0), (-1, -1), 1, colors.black),]))
     story.append(table)
     data = []
-    for index, questions in enumerate(questions, start=0):
-        data.append([index + 1, "A", "B", "C", "D"])
-    
+    for index, questions in enumerate(questions, start=1):
+        answers = [Paragraph(f'\xa0\xa0{chr(97+i)}', body_style) for i in range(4)]
+        data.append([index] + answers)
+
     table = Table(data, colWidths=[0.5*inch, 0.5*inch, 0.5*inch, 0.5*inch, 0.5*inch], repeatRows=1)
     table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
                                ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
                                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                               ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+                               ('GRID', (0, 0), (0, -1), 1, colors.black)]))
+    table.spaceBefore = 10
+    table.spaceAfter = 10
+    
+                               
+    
+    
     story.append(table)
+
 
 def add_test(conn, ca):
     global test_id
