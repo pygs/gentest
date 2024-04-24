@@ -113,7 +113,7 @@ def open_main_window(conn):
     subject_value = tk.StringVar(main_window)
     subject_value.set(subjects[0]) if subjects else subject_value.set("Brak przedmiotów")
 
-    subject_box = tk.OptionMenu(main_window, subject_value, *subjects)
+    subject_box = tk.OptionMenu(main_window, subject_value, ' ', *subjects)
     subject_box.grid(row=0, column=1)
 
     subject_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_subject_window(conn, subject_value, subject_box))
@@ -131,7 +131,7 @@ def open_main_window(conn):
     topic_value = tk.StringVar(main_window)
     topic_value.set(topics[0]) if topics else topic_value.set("Brak tematów")
 
-    topic_box = tk.OptionMenu(main_window, topic_value, *topics)
+    topic_box = tk.OptionMenu(main_window, topic_value, ' ', *topics)
     topic_box.grid(row=1, column=1)
 
     topic_plus_button = tk.Button(main_window, text="+", command=lambda: open_add_topic_window(conn, topic_value, topic_box, subject_value.get()))
@@ -298,6 +298,7 @@ def open_opencv_window(conn):
         pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     elif system == "Darwin":
         pytesseract.pytesseract.tesseract_cmd = r"/usr/local/bin/tesseract"
+    
     height, width, _ = image.shape
     
     # Określ proporcje obszaru zainteresowania (np. 10% szerokości i 5% wysokości)
@@ -314,7 +315,7 @@ def open_opencv_window(conn):
     
     # Wycinamy obszar zainteresowania z obrazu
     roi = image[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
-    id = pytesseract.image_to_string(roi)
+    id = pytesseract.image_to_string(roi, config="--psm 7")
     print(id)
     
     
@@ -339,12 +340,13 @@ def open_opencv_window(conn):
         x, y, w, h = cv2.boundingRect(contour)
         roi = middle_region[y:y+h, x:x+w]
         mean_color = np.mean(roi)
-        threshold = 186  # Prog wartości koloru, który oznacza, że obszar jest zamalowany
+        threshold = 160  # Prog wartości koloru, który oznacza, że obszar jest zamalowany
+        print(mean_color)
         if mean_color < threshold:
-            num_cols = 5  # Liczba obszarów kolumnowych na karcie odpowiedzi (4 odpowiedzi: A, B, C, D)
+            num_cols = 6  # Liczba obszarów kolumnowych na karcie odpowiedzi (4 odpowiedzi: A, B, C, D)
             col_width = middle_region.shape[1] // num_cols
             col_index = x // col_width
-            labels = [' ', 'A', 'B', 'C', 'D']
+            labels = [' ', 'A', 'B', 'C', 'D', ' ']
             answers[(x, y)] = labels[col_index]
     # Wyświetl obraz z zaznaczonymi zamalowanymi prostokątami i etykietami odpowiedzi
     for (x, y), label in answers.items():
@@ -365,21 +367,87 @@ def open_cam_check_window(conn):
     # Sprawdzenie czy kamera jest dostępna
     if not cap.isOpened():
         print("Błąd: Nie można otworzyć kamery.")
-        exit()
+        return
 
     while True:
         # Przechwytywanie klatki z kamery
         ret, frame = cap.read()
 
-        # Wyświetlanie klatki
-        cv2.imshow('Camera Feed', frame)
+        # Wywołanie funkcji do przetwarzania klatki
+        system = platform.system()
+    
+        if system == "Windows":
+            pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        elif system == "Darwin":
+            pytesseract.pytesseract.tesseract_cmd = r"/usr/local/bin/tesseract"
 
-        # Przerwanie pętli po naciśnięciu klawisza 'q'
+        height, width, _ = frame.shape
+        
+        # Określ proporcje obszaru zainteresowania (np. 10% szerokości i 5% wysokości)
+        roi_width_percent = 15
+        roi_height_percent = 20
+        
+        # Oblicz wymiary obszaru zainteresowania
+        roi_width = int(width * roi_width_percent / 100)
+        roi_height = int(height * roi_height_percent / 100)
+        
+        # Określ pozycję obszaru zainteresowania (w prawym górnym rogu obrazu)
+        roi_x = width - roi_width
+        roi_y = 0
+        
+        # Wycinamy obszar zainteresowania z obrazu
+        roi = frame[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
+        id = pytesseract.image_to_string(roi, config="--psm 7")
+        print("ID:", id)
+        
+        image_height, image_width, _ = frame.shape
+        middle_region = frame[:, image_width // 3:2 * image_width // 3]
+        gray_middle = cv2.cvtColor(middle_region, cv2.COLOR_BGR2GRAY)
+
+        # Wykonaj binaryzację obrazu dla środkowej części
+        _, binary_middle = cv2.threshold(gray_middle, 150, 255, cv2.THRESH_BINARY_INV)
+
+        # Znajdź kontury na obrazie binarnym dla środkowej części
+        contours, _ = cv2.findContours(binary_middle, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Przefiltruj kontury, aby wykryć tylko te, które są odpowiednio dużymi prostokątami
+        min_contour_area = 200
+        max_contour_area = 1000
+        filtered_contours = [cnt for cnt in contours if min_contour_area < cv2.contourArea(cnt) < max_contour_area]
+
+        answers = {}
+        for contour in filtered_contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            roi = middle_region[y:y+h, x:x+w]
+            mean_color = np.mean(roi)
+            threshold = 100  # Prog wartości koloru, który oznacza, że obszar jest zamalowany
+            if mean_color < threshold:
+                num_cols = 6  # Liczba obszarów kolumnowych na karcie odpowiedzi (4 odpowiedzi: A, B, C, D)
+                col_width = middle_region.shape[1] // num_cols
+                col_index = x // col_width
+                labels = [' ', 'A', 'B', 'C', 'D', ' ']
+                answers[(x, y)] = labels[col_index]
+        
+        # Wyświetl obraz z zaznaczonymi zamalowanymi prostokątami i etykietami odpowiedzi
+        for (x, y), label in answers.items():
+            cv2.putText(middle_region, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        
+        selected_answers = []
+        sorted_answers = sorted(answers.items(), key=lambda item: item[0][1])
+        for (_, _), label in sorted_answers:
+            selected_answers.append(label)
+        print("Odpowiedzi:", selected_answers)
+        cv2.imshow('Detected Squares', middle_region)
+
+        # Wyjście z pętli po naciśnięciu klawisza 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    # Zwalnianie zasobów i zamykanie okna
+    check_test(conn, id, selected_answers)  # Zakładając, że `conn` jest obiektem połączenia z bazą danych
+    # Zwalnianie zasobów
     cap.release()
+    cv2.destroyAllWindows()
+
 
 def check_test(conn, id, selected_answers):
     id_test = id
@@ -420,7 +488,7 @@ def check_test(conn, id, selected_answers):
             grade_window = tk.Tk()
             grade_window.geometry("100x100")
             grade = tk.Label(grade_window, text=data["grade5"]["grade_value"], font=("Verdana", 40)).pack()
-        elif correct_percent < data["grade6"]["grade_percent"]:
+        elif correct_percent < data["grade5"]["grade_percent"]:
             grade_window = tk.Tk()
             grade_window.geometry("100x100")
             grade = tk.Label(grade_window, text=data["grade6"]["grade_value"], font=("Verdana", 40)).pack()
@@ -488,13 +556,13 @@ def generate_answer_sheet(questions, story, doc):
     body_style.fontName = "Verdana"
     body_style.fontSize = 10
     body_style.align = "TA_CENTRE"
-    top = [["Imię i nazwisko...................................................................                            ", test_id]]
+    top = [["Imię i nazwisko..................................................                     ", test_id]]
 
     table = Table(top, repeatRows=1)
     table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Wyśrodkuj zawartość pionowo
                                ('FONTNAME', (0, 0), (-1, -1), 'Verdana'),
-                               ('FONTSIZE', (0, 0), (-1, -1), 12),
+                               ('FONTSIZE', (0, 0), (-1, -1), 16),
                                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black)]))
     story.append(table)
     story.append(Spacer(1, 36))
