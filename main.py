@@ -20,6 +20,7 @@ from reportlab.lib.enums import TA_CENTER
 import cv2 #pip
 import pytesseract #pip and tesseract
 import numpy as np
+import platform
 
 
 print(tk.TkVersion)
@@ -290,9 +291,13 @@ def open_generate_window(conn, current_topic):
     print(question_quantity)
 
 def open_opencv_window(conn):
+    system = platform.system()
     filepath = filedialog.askopenfilename(title="Open Photo file", filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")])
     image = cv2.imread(filepath)
-    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if system == "Windows":
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    elif system == "Darwin":
+        pytesseract.pytesseract.tesseract_cmd = r"/usr/local/bin/tesseract"
     height, width, _ = image.shape
     
     # Określ proporcje obszaru zainteresowania (np. 10% szerokości i 5% wysokości)
