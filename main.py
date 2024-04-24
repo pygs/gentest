@@ -24,6 +24,7 @@ import numpy as np
 
 print(tk.TkVersion)
 CONFIG_FILE = "config.json"
+grade_scale = "grade_scale.json"
 
 def save_config(host, username, password):
     config_data = {
@@ -70,7 +71,7 @@ def login():
         
         root.destroy()
         print (conn.encoding)
-        open_main_window(conn,)  
+        open_main_window(conn)  
 
     except psycopg2.Error as e:
         messagebox.showerror("Błąd logowania", "Błąd logowania do bazy danych:\n{}".format(e))
@@ -149,6 +150,9 @@ def open_main_window(conn):
 
     check_label = tk.Label(main_window, text="Sprawdź test: ").grid(row=4, column=0)
     check_button = tk.Button(main_window, text="Sprawdź", command=lambda: open_opencv_window(conn)).grid(row=4, column=1)
+    check_with_cam_button = tk.Button(main_window, text="Sprawdź za pomocą kamery", command=lambda: open_cam_check_window(conn)).grid(row=4, column=2)
+
+    grades_button = tk.Button(main_window, text="Skala ocen", command=lambda: open_grading_scale(conn)).grid(row=5, column=0)
 
 
     main_window.mainloop()
@@ -350,6 +354,28 @@ def open_opencv_window(conn):
     cv2.destroyAllWindows()
     check_test(conn, id, selected_answers)
 
+def open_cam_check_window(conn):
+    cap = cv2.VideoCapture(0)
+
+    # Sprawdzenie czy kamera jest dostępna
+    if not cap.isOpened():
+        print("Błąd: Nie można otworzyć kamery.")
+        exit()
+
+    while True:
+        # Przechwytywanie klatki z kamery
+        ret, frame = cap.read()
+
+        # Wyświetlanie klatki
+        cv2.imshow('Camera Feed', frame)
+
+        # Przerwanie pętli po naciśnięciu klawisza 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Zwalnianie zasobów i zamykanie okna
+    cap.release()
+
 def check_test(conn, id, selected_answers):
     id_test = id
     answ_from_db = []
@@ -365,6 +391,34 @@ def check_test(conn, id, selected_answers):
         if selected_answers[i] == answ_from_db_cleaned[i]:
             correct += 1
     print(correct)
+    correct_percent = (correct / len(selected_answers)) * 100
+    print(correct_percent)
+    with open("grade_scale.json", "r") as file:
+        data = json.load(file)["grades"]
+        if correct_percent >= data["grade1"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade1"]["grade_value"], font=("Verdana", 40)).pack()
+        elif correct_percent < data["grade1"]["grade_percent"] and correct_percent >= data["grade2"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade2"]["grade_value"], font=("Verdana", 40)).pack()
+        elif correct_percent < data["grade2"]["grade_percent"] and correct_percent >= data["grade3"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade3"]["grade_value"], font=("Verdana", 40)).pack()
+        elif correct_percent < data["grade3"]["grade_percent"] and correct_percent >= data["grade4"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade4"]["grade_value"], font=("Verdana", 40)).pack()
+        elif correct_percent < data["grade4"]["grade_percent"] and correct_percent >= data["grade5"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade5"]["grade_value"], font=("Verdana", 40)).pack()
+        elif correct_percent < data["grade6"]["grade_percent"]:
+            grade_window = tk.Tk()
+            grade_window.geometry("100x100")
+            grade = tk.Label(grade_window, text=data["grade6"]["grade_value"], font=("Verdana", 40)).pack()
 
 def generate_test(conn, current_topic, q_quantity, filename, group_quantity):
     for x in range(int(group_quantity)):
@@ -570,6 +624,127 @@ def get_topics(conn, current_subject):
     except psycopg2.Error as e:
         messagebox.showerror("Błąd", "Błąd podczas pobierania tematów:\n{}".format(e))
         return []
+
+def open_grading_scale(conn):
+    add_window = tk.Toplevel()
+    add_window.title("Skala ocen")
+    add_window.geometry("300x200")
+
+    tk.Label(add_window, text="Ocena").grid(row=0, column=1)
+    tk.Label(add_window, text="Procenty").grid(row=0, column=2)
+
+    tk.Label(add_window, text="Ocena 1:").grid(row=1, column=0)
+    grade1_entry = tk.Entry(add_window)
+    grade1_entry.grid(row=1, column=1)
+    grade1_percent = tk.Entry(add_window)
+    grade1_percent.grid(row=1, column=2)
+
+    tk.Label(add_window, text="Ocena 2:").grid(row=2, column=0)
+    grade2_entry = tk.Entry(add_window)
+    grade2_entry.grid(row=2, column=1)
+    grade2_percent = tk.Entry(add_window)
+    grade2_percent.grid(row=2, column=2)
+
+    tk.Label(add_window, text="Ocena 3:").grid(row=3, column=0)
+    grade3_entry = tk.Entry(add_window)
+    grade3_entry.grid(row=3, column=1)
+    grade3_percent = tk.Entry(add_window)
+    grade3_percent.grid(row=3, column=2)
+
+    tk.Label(add_window, text="Ocena 4:").grid(row=4, column=0)
+    grade4_entry = tk.Entry(add_window)
+    grade4_entry.grid(row=4, column=1)
+    grade4_percent = tk.Entry(add_window)
+    grade4_percent.grid(row=4, column=2)
+
+    tk.Label(add_window, text="Ocena 5:").grid(row=5, column=0)
+    grade5_entry = tk.Entry(add_window)
+    grade5_entry.grid(row=5, column=1)
+    grade5_percent = tk.Entry(add_window)
+    grade5_percent.grid(row=5, column=2)
+
+    tk.Label(add_window, text="Ocena 6:").grid(row=6, column=0)
+    grade6_entry = tk.Entry(add_window)
+    grade6_entry.grid(row=6, column=1)
+
+    load_grade_data(grade1_entry, grade1_percent,
+                    grade2_entry, grade2_percent,
+                    grade3_entry, grade3_percent,
+                    grade4_entry, grade4_percent,
+                    grade5_entry, grade5_percent,
+                    grade6_entry)
+
+    save_button = tk.Button(add_window, text="Zapisz", command=lambda: save_grade_scale(grade1_entry.get(), grade1_percent.get(),
+                                                                                        grade2_entry.get(), grade2_percent.get(),
+                                                                                        grade3_entry.get(), grade3_percent.get(),
+                                                                                        grade4_entry.get(), grade4_percent.get(),
+                                                                                        grade5_entry.get(), grade5_percent.get(),
+                                                                                        grade6_entry.get()))
+    save_button.grid(row=7, column=0)
+    
+def save_grade_scale(grade1_value, grade1_percent,
+                    grade2_value, grade2_percent,
+                    grade3_value, grade3_percent,
+                    grade4_value, grade4_percent,
+                    grade5_value, grade5_percent,
+                    grade6_value):
+    grades_data = {
+        "grade1": {
+            "grade_value": grade1_value,
+            "grade_percent": float(grade1_percent)
+        },
+        "grade2": {
+            "grade_value": grade2_value,
+            "grade_percent": float(grade2_percent)
+        },
+        "grade3": {
+            "grade_value": grade3_value,
+            "grade_percent": float(grade3_percent)
+        },
+        "grade4": {
+            "grade_value": grade4_value,
+            "grade_percent": float(grade4_percent)
+        },
+        "grade5": {
+            "grade_value": grade5_value,
+            "grade_percent": float(grade5_percent)
+        },
+        "grade6": {
+            "grade_value": grade6_value
+        }
+
+    }
+    
+    save_scale = {
+        "grades": grades_data
+    }
+    with open(grade_scale, "w") as f:
+        json.dump(save_scale, f)
+
+def load_grade_data(
+        grade1_entry, grade1_percent,
+        grade2_entry, grade2_percent,
+        grade3_entry, grade3_percent,
+        grade4_entry, grade4_percent,
+        grade5_entry, grade5_percent,
+        grade6_entry
+    ):
+    try:
+        with open("grade_scale.json", "r") as file:
+            data = json.load(file)["grades"]
+            grade1_entry.insert(0, data["grade1"]["grade_value"])
+            grade1_percent.insert(0, data["grade1"]["grade_percent"])
+            grade2_entry.insert(0, data["grade2"]["grade_value"])
+            grade2_percent.insert(0, data["grade2"]["grade_percent"])
+            grade3_entry.insert(0, data["grade3"]["grade_value"])
+            grade3_percent.insert(0, data["grade3"]["grade_percent"])
+            grade4_entry.insert(0, data["grade4"]["grade_value"])
+            grade4_percent.insert(0, data["grade4"]["grade_percent"])
+            grade5_entry.insert(0, data["grade5"]["grade_value"])
+            grade5_percent.insert(0, data["grade5"]["grade_percent"])
+            grade6_entry.insert(0, data["grade6"]["grade_value"])
+    except FileNotFoundError:
+        pass
 
 root = tk.Tk()
 root.title("Logowanie do PGAdmina")
